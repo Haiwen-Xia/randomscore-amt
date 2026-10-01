@@ -1,0 +1,13 @@
+defaults:
+  - nsynth
+  - /renderer@pianoteq: pianoteq
+  - _self_
+
+routes:
+  corruption_nsynth:
+    weight: 0.5
+  corruption_pianoteq:
+    source: training
+    weight: 0.5
+    sampler: ${online.sampler}
+    renderer: ${online.pianoteq}

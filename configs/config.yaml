@@ -1,0 +1,71 @@
+defaults:
+  - model: compact_large
+  - data: all_offline
+  - online: null
+  - _self_
+  - experiment: null
+  - override hydra/job_logging: disabled
+
+run:
+  name: offline
+  seed: 42
+  output_dir: outputs/${run.name}
+  resume: null
+  weights: null
+
+data_root: ${oc.env:DATA_ROOT,./datasets}
+audio:
+  sample_rate: 16000
+  input_frames: 32767
+tokenization:
+  max_length: 256
+  max_shift_steps: 206
+
+cache:
+  capacity: 1024
+  refresh_clips: 32
+  segments_per_source: 4
+  workers: 8
+  timeout_seconds: 600
+  partition_weights: null
+
+augmentation:
+  stem_keep_probability: 0.7
+  amplitude_range: [0.8, 1.1]
+  max_k: 5
+  tau: 0.3
+  alpha: 1.0
+  max_stems: 12
+
+training:
+  batch_size: 32
+  max_steps: 320000
+  stop_after_steps: null  # A short run without changing the learning-rate schedule.
+  learning_rate: 0.0001
+  warmup_steps: 1000
+  min_learning_rate: 0.00001
+  gradient_clip: 1.0
+  frame_loss_weight: 0.0
+  precision: bf16
+  compile: false
+  log_every: 300
+  eval_every: 10000
+  save_every: 10000
+
+evaluation:
+  batch_size: 16
+  train_clips_per_dataset: 32
+  max_files: null
+  max_segments_per_file: null
+  at_end: true
+
+wandb:
+  mode: offline
+  project: randomscore-amt
+
+hydra:
+  run:
+    dir: ${run.output_dir}
+  output_subdir: null
+  job:
+    chdir: false

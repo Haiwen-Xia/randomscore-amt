@@ -1,0 +1,5 @@
+The tokenization implementation and instrument/drum vocabulary are adapted
+from YourMT3 (Copyright 2024 The YourMT3 Authors), under Apache License 2.0.
+The intra-stem and cross-stem augmentation algorithms also derive from YourMT3.
+The original copyright notices are retained in the copied source files.
+See LICENSE for the Apache License 2.0 terms.

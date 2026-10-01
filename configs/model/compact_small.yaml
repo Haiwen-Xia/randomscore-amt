@@ -1,0 +1,14 @@
+defaults:
+  - compact_large
+  - _self_
+
+# Existing compact_small configuration.
+encoder:
+  dim: 768
+  core_layers: 1
+  channel_dim: 192
+  n_heads: 12
+decoder:
+  dim: 384
+  layers: 6
+  n_heads: 12

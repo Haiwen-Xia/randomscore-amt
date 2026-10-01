@@ -1,0 +1,10 @@
+train:
+  - name: slakh
+    splits: [train]
+    weight: 1.0
+    stems: true
+    max_components: 16
+test:
+  - name: slakh
+    splits: [test]
+    max_files: 16

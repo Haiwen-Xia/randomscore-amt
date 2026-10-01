@@ -1,0 +1,17 @@
+defaults:
+  - /sampler@sampler: corruption
+  - /renderer@nsynth: nsynth
+  - _self_
+
+# All routes share preloaded MIDI from data.train, with its sampling weights.
+render_seconds: 8.192
+segment_seconds: 2.048
+workers: 8
+refresh_bank_every: 100
+refresh_bank_sources: 256
+routes:
+  corruption_nsynth:
+    source: training
+    weight: 1
+    sampler: ${online.sampler}
+    renderer: ${online.nsynth}

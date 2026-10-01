@@ -1,0 +1,8 @@
+type: pianoteq
+binary: ${oc.env:PIANOTEQ_BIN,pianoteq}
+capabilities: ${oc.env:PIANOTEQ_CAPABILITIES,artifacts/pianoteq_capabilities.json}
+render_sample_rate: ${audio.sample_rate}
+timeout_seconds: 120
+retries: 2
+minimum_peak: 0.0001
+mix_peak_limit: 0.95

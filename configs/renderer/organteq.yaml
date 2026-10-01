@@ -1,0 +1,8 @@
+type: organteq
+binary: ${oc.env:ORGANTEQ_BIN,organteq}
+capabilities: ${oc.env:ORGANTEQ_CAPABILITIES,artifacts/organteq_capabilities.json}
+render_sample_rate: 44100
+timeout_seconds: 120
+retries: 2
+minimum_peak: 0.0001
+mix_peak_limit: 0.95

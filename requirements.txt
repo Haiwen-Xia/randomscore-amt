@@ -1,0 +1,11 @@
+torch>=2.4
+torchaudio>=2.4
+numpy>=1.26
+scipy>=1.11
+soundfile>=0.12
+hydra-core==1.3.2
+mir_eval>=0.7
+wandb>=0.16
+symusic>=0.6
+mido>=1.3
+soxr>=0.3

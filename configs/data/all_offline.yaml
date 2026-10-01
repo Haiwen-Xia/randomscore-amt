@@ -1,0 +1,44 @@
+# Splits and weights from the 0901 offline recipe.
+# The reader documents YourMT3's file-count correction to these weights.
+train:
+  - name: slakh
+    splits: [train, validation]
+    weight: 0.389
+    stems: true
+    max_components: 16
+  - name: musicnet
+    splits: [train_thickstun_em]
+    weight: 0.25
+  - name: enstdrums
+    splits: [drummer_1_dtp, drummer_2_dtp, drummer_1_dtp, drummer_2_dtp]
+    weight: 0.066
+  - name: guitarset
+    splits: [progression_1_pshift, progression_2_pshift]
+    weight: 0.013
+    allowed_programs: [24, 25, 26, 27, 28, 29, 30, 31]
+  - name: egmd
+    splits: [train]
+    weight: 0.005
+  - name: urmp
+    splits: [train]
+    weight: 0.132
+    stems: true
+  - name: maestro
+    splits: [train, validation]
+    weight: 0.132
+    allowed_programs: [0, 1, 2, 3, 4, 5, 6, 7]
+  - name: idmt_smt_bass
+    splits: [train]
+    weight: 0.013
+
+test:
+  - name: multtipop
+    splits: [dev]
+    max_files: 64
+  - name: maps
+    splits: [test]
+    max_files: 16
+    allowed_programs: [0, 1, 2, 3, 4, 5, 6, 7]
+  - name: slakh
+    splits: [test]
+    max_files: 16

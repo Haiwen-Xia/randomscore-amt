@@ -1,0 +1,8 @@
+type: corruption
+statistics: ${oc.env:CORRUPTION_STATISTICS,artifacts/slakh_train_8.192s_marginals.json}
+p: uniform
+s: 1.0
+keep_dimensions: [program]
+max_notes: null
+min_duration: 0.1
+max_duration: 4.0

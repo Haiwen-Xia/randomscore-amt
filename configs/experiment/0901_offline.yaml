@@ -1,0 +1,6 @@
+# @package _global_
+# Run with: python train.py experiment=0901_offline
+run:
+  name: 0901_offline
+training:
+  compile: true

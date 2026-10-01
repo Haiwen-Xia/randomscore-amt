@@ -1,0 +1,31 @@
+# Existing compact_large architecture; encoder and decoder remain independent.
+frontend:
+  sample_rate: ${audio.sample_rate}
+  n_fft: 1024
+  hop_length: 128
+  n_mels: 128
+  f_min: 0.0
+  f_max: 8000.0
+encoder:
+  conv_layers: [48, 64, 96]
+  dim: 1024
+  core_layers: 10
+  output_channels: 13
+  channel_dim: 384
+  n_heads: 16
+  dropout_rate: 0.1
+  position_encoding_type: rope
+  rope_base: 10000
+  ffn_widening_factor: 4
+  norm_type: rms_norm
+decoder:
+  input_dim: ${model.encoder.channel_dim}
+  dim: 768
+  layers: 6
+  n_heads: 12
+  dropout_rate: 0.05
+  position_encoding_type: rope
+  rope_base: 10000
+  ffn_widening_factor: 4
+  norm_type: rms_norm
+frame_head_dim: 256

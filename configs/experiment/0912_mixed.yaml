@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - override /online: mixed
+  - _self_
+run:
+  name: 0912_mixed
+training:
+  compile: true
+cache:
+  workers: 16
+  segments_per_source: 1
+  partition_weights: {offline: 1, online: 1}
+augmentation:
+  max_k: 3
+  tau: 1
+online:
+  workers: 32
+  nsynth:
+    bank:
+      notes_per_bucket: 0
+      size_gib: 64
+      init_workers: 24
+# The historical 0912 run used MultiTpop test, whereas 0901 used dev.
+data:
+  test:
+    - name: multtipop
+      splits: [test]
+      max_files: 64
+    - name: maps
+      splits: [test]
+      max_files: 16
+      allowed_programs: [0, 1, 2, 3, 4, 5, 6, 7]
+    - name: slakh
+      splits: [test]
+      max_files: 16

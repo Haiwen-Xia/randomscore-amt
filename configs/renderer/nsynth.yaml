@@ -1,0 +1,12 @@
+type: nsynth
+root: ${oc.env:NSYNTH_ROOT,${data_root}/Nsynth}
+note_target_peak: 0.2
+mix_target_peak: 0.95
+boundary_context_seconds: 2.048
+max_source_attempts: 8
+prune: {}
+bank:
+  notes_per_bucket: 8
+  size_gib: null
+  init_workers: 8
+  seed: 0
