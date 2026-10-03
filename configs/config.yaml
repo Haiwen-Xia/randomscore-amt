@@ -22,11 +22,14 @@ tokenization:
   max_shift_steps: 206
 
 cache:
+  # Producer DataLoader workers per rank. Cache sampling, donor selection and
+  # cross-augmentation run in the rank's training process and have no workers.
   capacity: 1024
   refresh_clips: 32
   segments_per_source: 4
-  workers: 8
+  producer_workers: 8
   timeout_seconds: 600
+  timeout_retries: 2
   partition_weights: null
 
 augmentation:

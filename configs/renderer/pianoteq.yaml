@@ -4,5 +4,8 @@ capabilities: ${oc.env:PIANOTEQ_CAPABILITIES,artifacts/pianoteq_capabilities.jso
 render_sample_rate: ${audio.sample_rate}
 timeout_seconds: 120
 retries: 2
+retry_wait_seconds: 1
+# Passes single-note capability scans but crashes on polyphonic clips in 9.1.2.
+excluded_presets: [Syngular Lead Factory Whistle]
 minimum_peak: 0.0001
 mix_peak_limit: 0.95

@@ -85,6 +85,8 @@ class SeededRenderedDataset(Dataset):
             raise ValueError("online routes need finite positive weights")
         self.probabilities = weights / weights.sum()
         self.max_attempts = max_attempts
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
 
     def __len__(self):
         return 2**31
@@ -106,8 +108,8 @@ class SeededRenderedDataset(Dataset):
         route = self.routes[route_name]
         last_score = None
         for attempt in range(self.max_attempts):
-            score = route["sampler"].sample(rng)
             try:
+                score = route["sampler"].sample(rng)
                 if not score["notes"]:
                     raise UnrenderableSample("empty symbolic score")
                 last_score = score
@@ -130,7 +132,12 @@ class SeededRenderedDataset(Dataset):
                 seed,
                 self.max_attempts,
             )
-            rendered = route["fallback"](last_score, rng)
+            try:
+                rendered = route["fallback"](last_score, rng)
+            except UnrenderableSample as error:
+                raise RuntimeError(
+                    f"{route_name}: piano fallback failed after {self.max_attempts} sample attempts"
+                ) from error
             return self.sample_builder.build(last_score, rendered, route_name, seed)
         raise UnrenderableSample(
             f"{route_name} failed after {self.max_attempts} attempts: {last_error}"

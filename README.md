@@ -32,7 +32,7 @@ For a short real-data run without changing the learning-rate schedule:
 ```bash
 python train.py experiment=0901_offline run.name=smoke \
   training.compile=false training.batch_size=2 training.stop_after_steps=2 \
-  cache.capacity=64 cache.refresh_clips=8 cache.workers=2 \
+  cache.capacity=64 cache.refresh_clips=8 cache.producer_workers=2 \
   evaluation.train_clips_per_dataset=1 evaluation.max_files=1 \
   evaluation.max_segments_per_file=1 wandb.mode=disabled
 ```
@@ -52,8 +52,9 @@ Adam optimizer, linear warmup from half the peak learning rate, and cosine decay
   Add a combination by editing the config's dataset list, splits, and weights.
 * `data/cache.py`: per-rank CPU clip storage with bounded FIFO replacement;
   fresh clips are preferred as bases and distinct source files are used as donors.
-  DataLoader workers only read sources; mixing/tokenization happen in the rank
-  process. No shared mutable cache or sample-dictionary wrapper is needed.
+  `cache.producer_workers` only controls producer DataLoader workers. Cache
+  sampling, donor selection, mixing and tokenization happen in the rank process;
+  there are no random-sampling workers.
 * `data/augment.py`: retain stems, select cross-source donors, exclude overlapping
   instruments/drums, bound event count, regroup stems, and mix with random gains.
 * `tokenization/`: YourMT3 token order, event codec, 13 channel groups, and inverse
@@ -148,6 +149,10 @@ fixed unaugmented clips; test losses cover the selected files' segments. Online
 training summaries evaluate each configured route separately with fixed seeds.
 Python logging, warnings and exceptions use the existing `FileHandler` in
 `run.log`. This is not a universal stdout/stderr capture layer.
+The rjob prefix exports `PIANOTEQ_RUNTIME_LIB` from the bundled
+`tools/linux-runtime` ALSA library. The renderer also prepends that path in the
+child process environment, because login shells on workers may reset
+`LD_LIBRARY_PATH`.
 Evaluation loss excludes programs outside the fixed decoder vocabulary (for
 example program 118 in MultiTpop), with a logged warning. The complete reference
 is retained for instrument-agnostic Note F1. Training target validation stays strict.
@@ -155,6 +160,11 @@ is retained for instrument-agnostic Note F1. Training target validation stays st
 Frame supervision is optional. At `training.frame_loss_weight=0`, no frame head,
 targets, loss, or frame metrics are created. A positive scalar enables them and
 adds `train/frame_loss`. Old metric names are not double-written.
+
+The fixed `mc13_full_plus` task has no `other` decoder channel. Programs outside
+its vocabulary, such as GM FX programs 96–127, remain in the audio/source record
+but are omitted from token supervision with a warning. Adding an `other` channel
+would define a new task and change the model/checkpoint shape.
 
 ```bash
 # Resume optimizer, scheduler, global step and per-rank RNG states.
@@ -170,7 +180,9 @@ python evaluate.py experiment=0901_offline run.name=evaluation \
 ```
 
 Checkpoints are written atomically at `training.save_every` steps and when a
-short run ends. `last.pt` points to the latest periodic file. Resume requires
+short run ends. When saving and evaluation fall on the same step, saving comes
+first, so an evaluation failure does not discard that checkpoint. `last.pt`
+points to the latest periodic file. Resume requires
 the same architecture, world size, and learning-rate schedule. It rebuilds the
 cache from the saved cursor of each producer; queued/cache samples are not checkpointed,
 so continuation is not a bitwise replay. This stage does not load Lightning

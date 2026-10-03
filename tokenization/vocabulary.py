@@ -7,7 +7,13 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Please see the details in the LICENSE file.
-"""The fixed mc13_full_plus vocabulary. Order defines decoder channel order."""
+"""The fixed mc13_full_plus vocabulary.
+
+Order defines decoder channel order. There is intentionally no ``other``
+channel: GM programs outside the listed groups, including FX programs 96--127,
+are omitted from token supervision with a warning. This preserves the existing
+13-channel task and checkpoint shape.
+"""
 
 import numpy as np
 

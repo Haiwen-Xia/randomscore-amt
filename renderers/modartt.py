@@ -4,6 +4,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import shutil
+import logging
 
 import numpy as np
 
@@ -47,22 +48,32 @@ class ModarttRenderer:
         if catalog["schema_version"] != 1:
             raise ValueError("unsupported capability artifact")
         self.presets = catalog["presets"]
+        self.excluded_presets = set(config.get("excluded_presets", []))
 
     def render(self, score, rng):
         grouped = {}
         for note in score["notes"]:
             grouped.setdefault(128 if note.is_drum else note.program, []).append(note)
-        stems, labels, trace = {}, [], []
+        stems, labels, trace, failures = {}, [], [], []
         for program, notes in grouped.items():
             group = pianoteq_render_group(program)
             candidates = [
                 p
                 for p in self.presets
                 if p["group"] == group
+                and p["preset"] not in self.excluded_presets
                 and (program == 128 or p["source_program"] == program)
                 and any(pitch_mapping(p, n.pitch, n.is_drum) is not None for n in notes)
             ]
             if not candidates:
+                trace.append(
+                    {
+                        "program": program,
+                        "status": "skipped",
+                        "reason": "no_matching_measured_preset",
+                        "notes": len(notes),
+                    }
+                )
                 continue
             preset = candidates[int(rng.integers(len(candidates)))]
             render, targets = [], []
@@ -71,19 +82,61 @@ class ModarttRenderer:
                 if pitch is not None:
                     render.append(replace(note, pitch=pitch))
                     targets.append(note)
-            waveform = render_notes(
-                render,
-                score["duration"],
-                preset["preset"],
-                self.config,
-                self.sample_rate,
-            )
+            try:
+                waveform = render_notes(
+                    render,
+                    score["duration"],
+                    preset["preset"],
+                    self.config,
+                    self.sample_rate,
+                )
+                if (
+                    waveform.shape != (round(score["duration"] * self.sample_rate),)
+                    or not np.isfinite(waveform).all()
+                ):
+                    raise RuntimeError(
+                        "renderer returned invalid audio shape or values"
+                    )
+                if np.max(np.abs(waveform), initial=0) < self.config["minimum_peak"]:
+                    raise UnrenderableSample("near-silent audio")
+            except Exception as error:
+                # Match the old capability renderer: a failed stem must not
+                # discard valid stems. Only successful notes become targets.
+                failures.append(error)
+                trace.append(
+                    {
+                        "program": program,
+                        "preset": preset["preset"],
+                        "status": "failed",
+                        "sample_retryable": isinstance(error, UnrenderableSample),
+                        "error": f"{type(error).__name__}: {error}"[-2000:],
+                    }
+                )
+                logging.warning(
+                    "Dropping failed stem program=%s preset=%s: %s",
+                    program,
+                    preset["preset"],
+                    error,
+                )
+                continue
             stems[program] = waveform
             labels.extend(targets)
             trace.append(
-                {"program": program, "preset": preset["preset"], "notes": len(targets)}
+                {
+                    "program": program,
+                    "preset": preset["preset"],
+                    "notes": len(targets),
+                    "status": "rendered",
+                }
             )
         if not stems:
+            fatal = [
+                error for error in failures if not isinstance(error, UnrenderableSample)
+            ]
+            if fatal:
+                raise RuntimeError(
+                    f"all Modartt stems failed; first fatal error: {fatal[0]}"
+                ) from fatal[0]
             raise UnrenderableSample("score has no matching audible measured presets")
         programs = sorted(stems)
         audio = np.stack([stems[p] for p in programs])

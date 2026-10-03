@@ -7,14 +7,14 @@ run:
 training:
   compile: true
 cache:
-  workers: 16
+  producer_workers: 16
   segments_per_source: 1
   partition_weights: {offline: 1, online: 1}
 augmentation:
   max_k: 3
   tau: 1
 online:
-  workers: 32
+  producer_workers: 32
   nsynth:
     bank:
       notes_per_bucket: 0

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import multiprocessing as mp
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -109,9 +110,17 @@ class NSynthBank:
             ).share_memory_()
             self.ids = torch.tensor(initial).share_memory_()
             self.drawn = torch.zeros(len(initial), dtype=torch.bool).share_memory_()
+            started = time.monotonic()
             with ThreadPoolExecutor(max_workers=init_workers) as pool:
                 for row, waveform in enumerate(pool.map(self.read, initial)):
                     self.audio[row].copy_(torch.from_numpy(waveform))
+                    if (row + 1) % 5000 == 0 or row + 1 == len(initial):
+                        logging.info(
+                            "NSynth bank: loaded %d/%d waveforms in %.1fs",
+                            row + 1,
+                            len(initial),
+                            time.monotonic() - started,
+                        )
 
     def read(self, source_id):
         source = self.sources[source_id]

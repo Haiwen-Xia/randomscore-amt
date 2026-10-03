@@ -54,8 +54,8 @@ def validate_config(config):
         )
     if t["stop_after_steps"] is not None and t["stop_after_steps"] <= 0:
         raise ValueError("stop_after_steps must be positive or null")
-    if cache["segments_per_source"] <= 0 or cache["workers"] < 0:
-        raise ValueError("segments_per_source must be positive and workers nonnegative")
+    if cache["segments_per_source"] <= 0 or cache["producer_workers"] < 0:
+        raise ValueError("segments_per_source must be positive and producer_workers nonnegative")
     aug = config["augmentation"]
     if (
         not 0 <= aug["stem_keep_probability"] <= 1
@@ -89,7 +89,7 @@ def validate_config(config):
     online = config.get("online")
     if online is not None:
         if (
-            online["workers"] < 0
+            online["producer_workers"] < 0
             or online["refresh_bank_every"] <= 0
             or online["refresh_bank_sources"] < 0
         ):
@@ -180,7 +180,7 @@ def train(config):
         }
         online, banks = build_online(config, sources, seed + 500003)
         producers["online"] = online
-        producer_options["online"] = {"workers": config["online"]["workers"]}
+        producer_options["online"] = {"producer_workers": config["online"]["producer_workers"]}
     weights = config["cache"]["partition_weights"] or {name: 1 for name in producers}
     allocate_counts(t["batch_size"], weights)
     cache, wandb_run = None, None
@@ -276,9 +276,8 @@ def train(config):
                         dist.all_reduce(frame)
                     values["train/frame_loss"] = float(frame[0] / frame[1].clamp_min(1))
                 log(values)
-            if t["eval_every"] and step % t["eval_every"] == 0:
-                log(evaluate(model, tokenizer, config, device, dataset.entries, online))
-                last_evaluation = step
+            # Save before evaluation so an evaluation failure cannot discard
+            # the training progress at a checkpoint step.
             if step % t["save_every"] == 0 or step == stop:
                 save_checkpoint(
                     output_dir / f"step-{step:07d}.pt",
@@ -290,6 +289,9 @@ def train(config):
                     cache,
                     rng,
                 )
+            if t["eval_every"] and step % t["eval_every"] == 0:
+                log(evaluate(model, tokenizer, config, device, dataset.entries, online))
+                last_evaluation = step
             if step < stop:
                 cache.refill()
                 if (

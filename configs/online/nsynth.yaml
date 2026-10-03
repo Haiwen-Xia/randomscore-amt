@@ -6,7 +6,8 @@ defaults:
 # All routes share preloaded MIDI from data.train, with its sampling weights.
 render_seconds: 8.192
 segment_seconds: 2.048
-workers: 8
+# Online producer DataLoader workers per rank. This does not affect cache.sample.
+producer_workers: 8
 refresh_bank_every: 100
 refresh_bank_sources: 256
 routes:
