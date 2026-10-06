@@ -42,6 +42,38 @@ them for actual evaluation. The offline recipe preserves its historical split
 selection: Slakh/MAESTRO training includes their validation splits; MultiTpop
 evaluation uses dev, and MAPS/Slakh evaluation uses test.
 
+## Prepare data
+
+Offline datasets must be prepared before training. This repository reads the
+16 kHz layout produced by [YourMT3](https://github.com/mimbres/YourMT3): its
+`install_dataset.py` and `utils/preprocess/` modules download or convert source
+datasets, write `*_notes.npy` annotations, and create the JSON indexes consumed
+here. Run the preprocessor from a YourMT3 checkout, selecting datasets 1, 2, 4,
+5, 6, 7, 12, and 13 for the default training mixture. Select MAPS separately
+for evaluation. If the source audio has already been downloaded, pass
+`--nodown`.
+
+```bash
+git clone https://github.com/mimbres/YourMT3.git
+cd YourMT3/amt/src
+python install_dataset.py "$DATA_ROOT"
+# Or preprocess files already present below DATA_ROOT:
+python install_dataset.py "$DATA_ROOT" --nodown
+```
+
+The resulting root must contain `yourmt3_indexes/<dataset>_<split>_file_list.json`
+and the audio/annotation paths referenced by those indexes. Absolute paths in
+an index are relocated under `DATA_ROOT` when the original location no longer
+exists. The active dataset and split names are listed in
+`configs/data/all_offline.yaml`.
+
+MultiTpop is not downloaded by the YourMT3 installer. Obtain its metadata and
+aligned MIDI, use a YouTube downloader such as `yt-dlp` to fetch the source
+audio permitted by the dataset's distribution instructions, and then run the
+MultiTpop preprocessor to create `multtipop_dev_file_list.json` and
+`multtipop_test_file_list.json`. YouTube availability changes over time, so the
+repository does not publish or assume a permanent audio archive.
+
 ## Read and modify
 
 Follow `train.py` from `OfflineDataset` through `ClipCache`, `augment_batch`,
@@ -102,6 +134,20 @@ NSynth keeps the sampled fine program for teacher forcing while its loss allows
 the whole family. A family stem containing several fine programs is treated as
 inseparable during augmentation; Synth Pad targets use the Synth Lead channel.
 
+Download the NSynth **train JSON/WAV archive** from the
+[official NSynth dataset page](https://magenta.tensorflow.org/datasets/nsynth),
+extract it, and set `NSYNTH_ROOT` to either the extraction parent or the train
+directory. The renderer accepts `train/audio`, `nsynth-train/audio`, or `audio`
+beneath that root. The TFRecord release is not supported because the waveform
+bank reads individual WAV files.
+
+Pianoteq is commercial software and is not distributed with this repository.
+Install or obtain the trial from the
+[official Pianoteq page](https://www.modartt.com/pianoteq_overview), then set
+`PIANOTEQ_BIN` to its standalone executable and `PIANOTEQ_CAPABILITIES` to a
+measured capability JSON. The trial has disabled notes and playback limits, so
+a licensed installation is required for unattended training.
+
 Online audio is rendered for 8.192 seconds and split into four 2.048-second
 segments; each model input contains 32767 samples, matching the existing frontend.
 TIEs come from the rendered note intervals. Each route has a visible config name,
@@ -117,11 +163,22 @@ export PIANOTEQ_CAPABILITIES=/path/to/pianoteq_capabilities.json
 python train.py experiment=0912_mixed
 ```
 
-To measure new marginals, use `python -m scripts.stat_midi --root "$DATA_ROOT"
---dataset slakh --split train --output artifacts/slakh_marginals.json`. This
-samples bounded MIDI windows and bins times to 1 ms; it does not claim to
-recreate a historical statistics artifact. Use that original artifact when
-reproducing the 0912 configuration.
+The versioned `artifacts/slakh_train_8.192s_marginals.json` is the default
+corruption distribution. It includes its index fingerprint, parser version,
+seed, window policy, sample count, and measured distributions. The computation
+is retained in `scripts/stat_midi.py`; regenerate a smaller or different source
+distribution with:
+
+```bash
+python -m scripts.stat_midi --root "$DATA_ROOT" --dataset slakh --split train \
+  --duration 8.192 --samples 10000 --seed 42 \
+  --output artifacts/custom_marginals.json
+export CORRUPTION_STATISTICS=$PWD/artifacts/custom_marginals.json
+```
+
+The runtime consumes one aggregate JSON object, so precomputed per-clip JSONL
+files are not required. Keep the generator when changing data or sampling
+policy; use the checked-in JSON for the documented default.
 
 The 0912 recipe selects the same eight offline datasets, a 1:1 offline/online
 base quota, equal NSynth/Pianoteq route weights, four clips per online render,
@@ -138,7 +195,40 @@ The model and token semantics are retained; the data pipeline has been simplifie
 FIFO eviction, independently seeded source reads, and the local augmentation RNG
 do not reproduce the old asynchronous pipeline's exact sample sequence.
 
+## Inspect training samples
+
+Export 30 augmented samples from the configured training pipeline with:
+
+```bash
+python -m scripts.export_inspect experiment=0901_offline
+# Mixed offline/online inspection (requires NSynth and Pianoteq resources):
+python -m scripts.export_inspect experiment=0912_mixed
+```
+
+The default destination is `<run.output_dir>/inspect/`. Each numbered sample
+has a WAV, MIDI, and JSON sidecar, and `manifest.json` lists the complete set.
+Metadata identifies the offline audio/annotation filename or online route and
+MIDI source, crop offsets, sampler and renderer traces, final programs, and the
+base/donor role of every source actually retained in the mix. Override
+`inspection.count` or `inspection.output_dir` through Hydra when needed.
+
 ## Metrics and checkpoints
+
+For a bounded, reproducible checkpoint comparison on RWC, MAPS, and MultiTpop,
+run `benchmark.py` with `configs/benchmark/rwc_maps_multtipop.yaml`. Its `--limit`
+selects the first N tracks of MAPS and MultiTpop and the first N tracks of each
+RWC subset. `--max-segments` bounds the audio prefix of each track. The benchmark
+uses the training evaluator's instrument-agnostic onset F1, reports a mean over
+tracks with pitched reference notes, and writes per-track scores and a summary.
+`--cache-notes` saves merged predicted notes for resuming or rescoring; the cache
+is checked against the checkpoint, suite, and source file metadata.
+
+```bash
+python benchmark.py outputs/offline_large_1001_2330/step-0320000.pt \
+  --limit 2 --max-segments 16 --cache-notes
+python benchmark.py outputs/online_offline_large_1002_rerun/step-0320000.pt \
+  --limit 2 --max-segments 16 --cache-notes
+```
 
 `metrics.log` and optional W&B contain `train/loss`, `train/lr`,
 `eval/train/<dataset-or-route>/loss`, `eval/test/<dataset>/loss`, and

@@ -2,6 +2,8 @@
 
 import argparse
 from collections import Counter
+import hashlib
+from importlib.metadata import version
 import json
 from pathlib import Path
 
@@ -24,7 +26,14 @@ def main():
     args = parser.parse_args()
     if args.duration <= 0 or args.samples <= 0:
         parser.error("duration and samples must be positive")
-    entries = read_indexes(args.root, [{"name": args.dataset, "splits": [args.split]}])
+    index_path = (
+        Path(args.root)
+        / "yourmt3_indexes"
+        / f"{args.dataset}_{args.split}_file_list.json"
+    )
+    entries = read_indexes(
+        args.root, [{"name": args.dataset, "splits": [args.split]}]
+    )
     source = MidiSource(entries, [1.0])
     rng = np.random.default_rng(args.seed)
     counts = {name: Counter() for name in ("pitch", "velocity", "duration", "onset")}
@@ -65,6 +74,14 @@ def main():
                     "split": args.split,
                     "seed": args.seed,
                     "samples": args.samples,
+                    "index_file": index_path.name,
+                    "index_sha256": hashlib.sha256(
+                        index_path.read_bytes()
+                    ).hexdigest(),
+                    "midi_parser": {
+                        "name": "symusic",
+                        "version": version("symusic"),
+                    },
                     "clip_policy": "bounded MIDI windows",
                     "time_bin_seconds": 0.001,
                 },

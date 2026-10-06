@@ -1,0 +1,8 @@
+datasets:
+  - name: rwc
+    splits: [all]
+    subset_field: subset
+  - name: maps
+    splits: [test]
+  - name: multtipop
+    splits: [test]

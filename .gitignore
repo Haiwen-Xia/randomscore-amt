@@ -6,3 +6,4 @@ __pycache__/
 outputs/
 wandb/
 non-maintained/
+run_logs/

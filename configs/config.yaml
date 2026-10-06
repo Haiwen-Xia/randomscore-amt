@@ -62,6 +62,10 @@ evaluation:
   max_segments_per_file: null
   at_end: true
 
+inspection:
+  count: 30
+  output_dir: ${run.output_dir}/inspect
+
 wandb:
   mode: offline
   project: randomscore-amt

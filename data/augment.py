@@ -83,6 +83,16 @@ def within_event_budget(samples, donor, max_events=1024):
     )
 
 
+def source_metadata(sample):
+    """Return compact, JSON-ready provenance for an accepted mix component."""
+    return {
+        "source_id": sample["source_id"],
+        "dataset": sample["dataset"],
+        "programs": [int(program) for program in sample["programs"]],
+        "trace": sample.get("trace"),
+    }
+
+
 def augment_batch(samples, cache, config, rng):
     max_k, tau, alpha = config["max_k"], config["tau"], config["alpha"]
     survival = np.exp(-np.power(np.arange(max_k + 1) * tau, alpha))
@@ -125,6 +135,7 @@ def augment_batch(samples, cache, config, rng):
         mixed["programs"] = np.unique(np.concatenate([s["programs"] for s in gathered]))
         mixed["has_stems"] = False
         mixed["source_ids"] = [s["source_id"] for s in gathered]
+        mixed["sources"] = [source_metadata(s) for s in gathered]
         for key in ("note_events", "tie_note_events"):
             mixed[key] = [e for s in gathered for e in s[key]]
         result.append(mixed)

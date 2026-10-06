@@ -221,6 +221,12 @@ def read_segments(entry, spec, starts, frames, sample_rate):
                 "tie_note_events": ties,
                 "source_id": str(entry["notes_file"]),
                 "dataset": spec["name"],
+                "trace": {
+                    "kind": "offline",
+                    "audio_file": str(entry["mix_audio_file"]),
+                    "notes_file": str(entry["notes_file"]),
+                    "start": start / sample_rate,
+                },
             }
         )
     return samples
