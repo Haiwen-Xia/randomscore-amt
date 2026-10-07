@@ -1,285 +1,202 @@
 # RandomScore AMT
 
-An independent AMT implementation with the compact encoder/decoder, YourMT3
-note tokenization, offline audio, and online sampler–renderer generation.
-All runtime code lives in this directory.
+This repository is a research-oriented automatic music transcription (AMT)
+codebase related to [*Randomized Scores and Diverse Timbres: Augmenting
+Automatic Music Transcription with Online-Generated Data*](paper.pdf). It is
+designed for experiments on how symbolic score variation and timbral coverage
+affect transcription beyond the training datasets.
 
-## Run
+The central idea is simple: a **sampler** chooses the notes, and a **renderer**
+turns them into labeled audio during training. Offline recordings can be mixed
+with these newly generated pairs. The model is a compact, 13-channel
+autoregressive transcriber with a shared decoder. The implementation favors
+readable components and inspectable outputs so that data-generation choices can
+be studied and changed directly. It also simplifies much of YourMT3's training
+logic into an explicit PyTorch loop with a smaller set of data, augmentation,
+evaluation, and checkpoint modules.
 
-Use Python 3.10 or newer. Install a matching PyTorch/torchaudio pair for your CUDA
-runtime, then install `requirements.txt`. Run commands from this directory.
-`DATA_ROOT` points to the prepared data tree containing `yourmt3_indexes/` and
-the audio/annotation directories. Existing YourMT3 `.npy` annotations are read
-with a local class mapping; the old source tree is not needed.
+## How it is organized
 
-```bash
-pip install -r requirements.txt
-export DATA_ROOT=/path/to/music_data
-python train.py experiment=0901_offline
-torchrun --standalone --nproc_per_node=2 train.py experiment=0901_offline
+```text
+Prepared audio + notes ------> offline dataset --+
+                                                +--> clip cache --> augmentation
+MIDI --> sampler-renderer group --> online data -+       --> tokens --> AMT model
 ```
 
-On this workspace, `.venv/bin/python` uses the installed music-transcription
-environment plus a project-local Hydra installation. `.venv/` is not released.
+| Area | What it contains |
+| --- | --- |
+| `data/` | Prepared dataset indexes, MIDI sources, score corruption, offline/online sampling, clip cache, and audio augmentation. |
+| `renderers/` | NSynth note rendering and Pianoteq/Organteq stem rendering. |
+| `tokenization/` | Note-event vocabulary, 13-channel targets, and decoding back to notes. |
+| `models/` | Log-mel frontend, convolutional/Transformer encoder, channel split, and shared autoregressive decoder. |
+| `training/` | Loss, validation, logging, and native PyTorch checkpoints. |
+| `configs/` | Composable model, dataset, sampler, renderer, and experiment settings. |
 
-Hydra composes `configs/config.yaml` with `model/`, `data/`, and an optional
-`experiment/` override. `experiment=0901_offline` selects the offline recipe;
-`model=compact_small` and `data=slakh` can be selected independently. Every run
-saves its resolved `config.yaml`. Modules receive ordinary dictionaries.
+`train.py` connects these pieces in one training loop. Offline and online
+examples use the same augmentation, tokenizer, and model. Each named online
+sampler-renderer group pairs a symbolic sampler with an audio renderer and has
+its own sampling weight. Groups are combined in configuration.
 
-For a short real-data run without changing the learning-rate schedule:
+## Set up from a fresh machine
+
+Use Linux, Python 3.10 or newer, and a GPU with a compatible PyTorch build for
+training. Create an environment and install PyTorch and torchaudio for your CUDA
+version using the [official PyTorch installer](https://pytorch.org/get-started/locally/).
+Then install this project's dependencies:
 
 ```bash
-python train.py experiment=0901_offline run.name=smoke \
+git clone https://github.com/Haiwen-Xia/randomscore-amt.git
+cd randomscore-amt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+# Install the matching torch + torchaudio pair for your machine first.
+python -m pip install -r requirements.txt
+python -c 'import torch; print(torch.__version__, torch.cuda.is_available())'
+```
+
+CPU execution is supported for inspection and small checks, but full training
+and benchmark inference are intended for a GPU. Commands below assume the
+environment is activated and the current directory is this repository.
+
+### Prepare offline data
+
+Set `DATA_ROOT` to a directory where you want to keep datasets. The loader
+expects 16 kHz audio, note annotations, and JSON indexes in
+`$DATA_ROOT/yourmt3_indexes/`. These can be produced with the
+[YourMT3 dataset installer](https://github.com/mimbres/YourMT3), which is needed
+for preparation only; training does not import YourMT3.
+
+```bash
+export DATA_ROOT="$HOME/music_data"
+git clone https://github.com/mimbres/YourMT3.git ../YourMT3
+cd ../YourMT3/amt/src
+python -m pip install -r requirements.txt
+python install_dataset.py "$DATA_ROOT"
+# Enter 1,2,4,5,6,7,12,13 when prompted for the default training mixture.
+# Include 3 for MAPS evaluation. Use --nodown if source files are already present.
+cd ../../../randomscore-amt
+```
+
+The eight training datasets are Slakh, MusicNet, MAESTRO, GuitarSet, ENST-drums,
+EGMD, URMP, and IDMT-SMT-Bass. The default offline recipe also evaluates MAPS
+and MultiTpop, so prepare both before using it. Check that, for example,
+`$DATA_ROOT/yourmt3_indexes/slakh_train_file_list.json` exists before running.
+For a smaller first run, prepare only Slakh (installer choice `1`) and select
+`data=slakh` below. The complete dataset selection and evaluation splits are
+in `configs/data/`.
+
+MultiTpop and RWC require their own prepared audio, aligned MIDI, and indexes.
+They are not installed by the eight-dataset command above. Obtain MultiTpop's
+metadata and aligned MIDI from its [dataset release](https://gclef-cmu.org/multtipop/)
+and follow the dataset's instructions for sourcing audio. MultiTpop uses
+`multtipop_dev_file_list.json` for the default offline recipe and
+`multtipop_test_file_list.json` for the mixed recipe and benchmark. Prepare
+those splits as YourMT3-style 16 kHz audio and note annotations, and put their
+indexes under `$DATA_ROOT/yourmt3_indexes/`. MAPS is installer choice `3`; RWC
+requires separate access to its source data.
+
+## Train
+
+Start with the offline recipe once the default data mixture is prepared:
+
+```bash
+python train.py experiment=0901_offline run.name=my_offline_run
+```
+
+For a short Slakh check with modest cache and evaluation limits:
+
+```bash
+python train.py data=slakh run.name=slakh_check \
   training.compile=false training.batch_size=2 training.stop_after_steps=2 \
   cache.capacity=64 cache.refresh_clips=8 cache.producer_workers=2 \
   evaluation.train_clips_per_dataset=1 evaluation.max_files=1 \
   evaluation.max_segments_per_file=1 wandb.mode=disabled
 ```
 
-The small evaluation limits above are only for checking the pipeline. Remove
-them for actual evaluation. The offline recipe preserves its historical split
-selection: Slakh/MAESTRO training includes their validation splits; MultiTpop
-evaluation uses dev, and MAPS/Slakh evaluation uses test.
+The defaults write a resolved config, `metrics.log`, `run.log`, and checkpoints
+to `outputs/<run.name>/`. W&B is optional: set `wandb.mode=disabled` to avoid
+creating a run. For distributed training, launch the same entry point with
+`torchrun --standalone --nproc_per_node=<GPU_COUNT> train.py ...`.
 
-## Prepare data
+### Add online-rendered audio
 
-Offline datasets must be prepared before training. This repository reads the
-16 kHz layout produced by [YourMT3](https://github.com/mimbres/YourMT3): its
-`install_dataset.py` and `utils/preprocess/` modules download or convert source
-datasets, write `*_notes.npy` annotations, and create the JSON indexes consumed
-here. Run the preprocessor from a YourMT3 checkout, selecting datasets 1, 2, 4,
-5, 6, 7, 12, and 13 for the default training mixture. Select MAPS separately
-for evaluation. If the source audio has already been downloaded, pass
-`--nodown`.
+The sampler starts from indexed training MIDI and can retain source notes or
+corrupt their attributes using the included
+`artifacts/slakh_train_8.192s_marginals.json`. The renderer supplies the timbre.
+Each 8.192-second rendering yields four 2.048-second training segments.
 
-```bash
-git clone https://github.com/mimbres/YourMT3.git
-cd YourMT3/amt/src
-python install_dataset.py "$DATA_ROOT"
-# Or preprocess files already present below DATA_ROOT:
-python install_dataset.py "$DATA_ROOT" --nodown
-```
-
-The resulting root must contain `yourmt3_indexes/<dataset>_<split>_file_list.json`
-and the audio/annotation paths referenced by those indexes. Absolute paths in
-an index are relocated under `DATA_ROOT` when the original location no longer
-exists. The active dataset and split names are listed in
-`configs/data/all_offline.yaml`.
-
-MultiTpop is not downloaded by the YourMT3 installer. Obtain its metadata and
-aligned MIDI, use a YouTube downloader such as `yt-dlp` to fetch the source
-audio permitted by the dataset's distribution instructions, and then run the
-MultiTpop preprocessor to create `multtipop_dev_file_list.json` and
-`multtipop_test_file_list.json`. YouTube availability changes over time, so the
-repository does not publish or assume a permanent audio archive.
-
-## Read and modify
-
-Follow `train.py` from `OfflineDataset` through `ClipCache`, `augment_batch`,
-`TargetTokenizer`, and `CompactModel`. There is one explicit training loop,
-Adam optimizer, linear warmup from half the peak learning rate, and cosine decay.
-
-* `data/datasets.py`: JSON indexes, audio crops, boundary TIEs, and source sampling.
-  Add a combination by editing the config's dataset list, splits, and weights.
-* `data/cache.py`: per-rank CPU clip storage with bounded FIFO replacement;
-  fresh clips are preferred as bases and distinct source files are used as donors.
-  `cache.producer_workers` only controls producer DataLoader workers. Cache
-  sampling, donor selection, mixing and tokenization happen in the rank process;
-  there are no random-sampling workers.
-* `data/augment.py`: retain stems, select cross-source donors, exclude overlapping
-  instruments/drums, bound event count, regroup stems, and mix with random gains.
-* `tokenization/`: YourMT3 token order, event codec, 13 channel groups, and inverse
-  conversion. The default vocabulary has 596 tokens; each channel has length 256.
-* `models/encoder.py` and `models/decoder.py`: independent PyTorch modules.
-  `CompactEncoder.encode_features(mel)` exposes unprojected temporal features;
-  `forward(mel)` includes the existing channel projection. `models/model.py`
-  assembles the frontend, encoder, decoder, embeddings, and prediction head.
-* `training/loss.py`: exact-label CE and optional partial-label CE. An ordinary
-  `label_constraint` dictionary specifies allowed programs or drum pitches.
-  Piano/guitar datasets may identify a family but not its fine instrument class;
-  their loss is `-log(sum(probability of allowed tokens))`. Precise labels use CE.
-
-The numeric dataset weights follow the historical YourMT3 rule: each file in
-dataset i receives `weight_i * (1 - n_i / N)`, then weights are normalized.
-They are not direct dataset probabilities. Inspect the resulting probabilities
-and split counts with `python -m scripts.stat_dataset`.
-
-## Online composition
-
-`MidiSource` preloads each indexed MIDI once into compact shared note arrays.
-`CorruptionSampler` samples a clip and corrupts its attributes using measured
-marginals. The source has no eviction, refresh, or computed-property wrappers.
-
-`data/build.py` selects implementations with explicit `if/elif` branches and
-assembles a dictionary of named sampler–renderer routes. All combinations use
-the same `SeededRenderedDataset` and `AudioMidiSampleBuilder`. To add a
-combination, add a route in Hydra config; do not add a Dataset subclass.
-Sources are passed in as a dictionary of objects; each route's `source` selects
-one of those objects. The training entrypoint supplies the `training` MIDI source.
-
-```text
-preloaded MidiSource -> CorruptionSampler -> selected renderer
-    -> actual rendered notes + stems + label sets
-    -> AudioMidiSampleBuilder -> seeded training segments
-```
-
-NSynth uses `renderers/prune_audio.py` (the v3 algorithm only). Its bounded
-waveform bank is separate from the preloaded MIDI symbols. The renderer returns
-actual fallback pitches and drops silent notes from supervision. Pianoteq and
-Organteq share process restart, timeout and error handling in `renderers/process.py`;
-measured capability dictionaries determine usable preset/pitch pairs. Permanent
-configuration errors propagate; only explicitly unrenderable samples are retried.
-NSynth keeps the sampled fine program for teacher forcing while its loss allows
-the whole family. A family stem containing several fine programs is treated as
-inseparable during augmentation; Synth Pad targets use the Synth Lead channel.
-
-Download the NSynth **train JSON/WAV archive** from the
-[official NSynth dataset page](https://magenta.tensorflow.org/datasets/nsynth),
-extract it, and set `NSYNTH_ROOT` to either the extraction parent or the train
-directory. The renderer accepts `train/audio`, `nsynth-train/audio`, or `audio`
-beneath that root. The TFRecord release is not supported because the waveform
-bank reads individual WAV files.
-
-Pianoteq is commercial software and is not distributed with this repository.
-Install or obtain the trial from the
-[official Pianoteq page](https://www.modartt.com/pianoteq_overview), then set
-`PIANOTEQ_BIN` to its standalone executable and `PIANOTEQ_CAPABILITIES` to a
-measured capability JSON. The trial has disabled notes and playback limits, so
-a licensed installation is required for unattended training.
-
-Online audio is rendered for 8.192 seconds and split into four 2.048-second
-segments; each model input contains 32767 samples, matching the existing frontend.
-TIEs come from the rendered note intervals. Each route has a visible config name,
-which is also its evaluation metric name.
+For NSynth, download the **train JSON/WAV archive** from the
+[NSynth dataset page](https://magenta.tensorflow.org/datasets/nsynth), extract
+it, and point `NSYNTH_ROOT` to the extraction directory or its train directory.
+The TFRecord archive does not supply the individual WAV files this renderer
+reads.
 
 ```bash
-export CORRUPTION_STATISTICS=/path/to/slakh_train_8.192s_marginals.json
-export NSYNTH_ROOT=/path/to/Nsynth
+export NSYNTH_ROOT=/path/to/nsynth-train
 python train.py online=nsynth run.name=offline_nsynth
-
-export PIANOTEQ_BIN=/path/to/Pianoteq
-export PIANOTEQ_CAPABILITIES=/path/to/pianoteq_capabilities.json
-python train.py experiment=0912_mixed
 ```
 
-The versioned `artifacts/slakh_train_8.192s_marginals.json` is the default
-corruption distribution. It includes its index fingerprint, parser version,
-seed, window policy, sample count, and measured distributions. The computation
-is retained in `scripts/stat_midi.py`; regenerate a smaller or different source
-distribution with:
+The mixed recipe uses offline datasets, NSynth, and Pianoteq. It supports the
+**free Pianoteq 9.1.2 version** used in the related paper; a paid license is not
+required by the renderer. Download Pianoteq from
+[Modartt](https://www.modartt.com/pianoteq_overview) and point `PIANOTEQ_BIN`
+to its Linux standalone executable. The checked-in
+`artifacts/pianoteq_capabilities.json` records measured playable preset/pitch
+pairs for Pianoteq 9.1.2, including its unavailable pitches. If using a
+different version or preset collection, measure a new catalog and set
+`PIANOTEQ_CAPABILITIES` to its path; the bundled catalog should not be assumed
+to describe another release.
 
 ```bash
-python -m scripts.stat_midi --root "$DATA_ROOT" --dataset slakh --split train \
-  --duration 8.192 --samples 10000 --seed 42 \
-  --output artifacts/custom_marginals.json
-export CORRUPTION_STATISTICS=$PWD/artifacts/custom_marginals.json
+export PIANOTEQ_BIN='/path/to/Pianoteq 9'
+export NSYNTH_ROOT=/path/to/nsynth-train
+python train.py experiment=0912_mixed run.name=my_mixed_run
 ```
 
-The runtime consumes one aggregate JSON object, so precomputed per-clip JSONL
-files are not required. Keep the generator when changing data or sampling
-policy; use the checked-in JSON for the documented default.
+The mixed recipe uses a 64 GiB NSynth waveform bank by default. On a machine
+with less shared memory, set `online.nsynth.bank.size_gib=<available_size>` and
+adjust the batch/cache settings as needed. Pianoteq and Organteq binaries are
+not distributed here. The free Pianoteq executable can restart between render
+attempts; only successfully rendered notes are used as targets.
 
-The 0912 recipe selects the same eight offline datasets, a 1:1 offline/online
-base quota, equal NSynth/Pianoteq route weights, four clips per online render,
-and MultiTpop test. Its historical 64 GiB NSynth bank needs that much available
-shared memory; override `online.nsynth.bank.size_gib` for smaller machines.
-NSynth bank refresh changes the resident source pool, so a seed alone does not
-freeze timbre selection across refreshes or checkpoint restarts.
+## Inspect and evaluate
 
-`ClipCache` stores audio in explicit offline/online partitions. The weights set
-base-batch, prefill and refresh quotas, which must be integral. Cross-augmentation
-draws donors from all partitions, so final mixed audio need not have that ratio.
-
-The model and token semantics are retained; the data pipeline has been simplified.
-FIFO eviction, independently seeded source reads, and the local augmentation RNG
-do not reproduce the old asynchronous pipeline's exact sample sequence.
-
-## Inspect training samples
-
-Export 30 augmented samples from the configured training pipeline with:
+Export examples from the actual training pipeline before a long experiment:
 
 ```bash
-python -m scripts.export_inspect experiment=0901_offline
-# Mixed offline/online inspection (requires NSynth and Pianoteq resources):
-python -m scripts.export_inspect experiment=0912_mixed
+python -m scripts.export_inspect data=slakh run.name=inspection
 ```
 
-The default destination is `<run.output_dir>/inspect/`. Each numbered sample
-has a WAV, MIDI, and JSON sidecar, and `manifest.json` lists the complete set.
-Metadata identifies the offline audio/annotation filename or online route and
-MIDI source, crop offsets, sampler and renderer traces, final programs, and the
-base/donor role of every source actually retained in the mix. Override
-`inspection.count` or `inspection.output_dir` through Hydra when needed.
+`outputs/inspection/inspect/` contains 30 numbered WAV/MIDI/JSON sets and a
+manifest. The JSON records source files or online routes, crop positions, and
+the retained components of augmented mixtures. Change `inspection.count` to
+export fewer or more examples.
 
-## Metrics and checkpoints
-
-For a bounded, reproducible checkpoint comparison on RWC, MAPS, and MultiTpop,
-run `benchmark.py` with `configs/benchmark/rwc_maps_multtipop.yaml`. Its `--limit`
-selects the first N tracks of MAPS and MultiTpop and the first N tracks of each
-RWC subset. `--max-segments` bounds the audio prefix of each track. The benchmark
-uses the training evaluator's instrument-agnostic onset F1, reports a mean over
-tracks with pitched reference notes, and writes per-track scores and a summary.
-`--cache-notes` saves merged predicted notes for resuming or rescoring; the cache
-is checked against the checkpoint, suite, and source file metadata.
+To compare a native checkpoint on RWC, MAPS, and MultiTpop after those datasets
+are prepared, run:
 
 ```bash
-python benchmark.py outputs/offline_large_1001_2330/step-0320000.pt \
-  --limit 2 --max-segments 16 --cache-notes
-python benchmark.py outputs/online_offline_large_1002_rerun/step-0320000.pt \
-  --limit 2 --max-segments 16 --cache-notes
+python benchmark.py outputs/my_mixed_run/step-0320000.pt --cache-notes
 ```
 
-`metrics.log` and optional W&B contain `train/loss`, `train/lr`,
-`eval/train/<dataset-or-route>/loss`, `eval/test/<dataset>/loss`, and
-`eval/test/<dataset>/note_f1`. The latter is the per-file mean non-drum,
-instrument-agnostic onset F1 (50 ms / 50 cent; offsets ignored). Files without
-pitched reference notes are excluded from that mean. Training summaries use
-fixed unaugmented clips; test losses cover the selected files' segments. Online
-training summaries evaluate each configured route separately with fixed seeds.
-Python logging, warnings and exceptions use the existing `FileHandler` in
-`run.log`. This is not a universal stdout/stderr capture layer.
-The rjob prefix exports `PIANOTEQ_RUNTIME_LIB` from the bundled
-`tools/linux-runtime` ALSA library. The renderer also prepends that path in the
-child process environment, because login shells on workers may reset
-`LD_LIBRARY_PATH`.
-Evaluation loss excludes programs outside the fixed decoder vocabulary (for
-example program 118 in MultiTpop), with a logged warning. The complete reference
-is retained for instrument-agnostic Note F1. Training target validation stays strict.
+The benchmark uses the training evaluator's instrument-agnostic onset note F1
+(50 ms onset tolerance, offsets ignored). It writes per-track scores and a
+dataset summary under `outputs/benchmarks/<run.name>/`; `--cache-notes` saves
+predicted notes for resuming or rescoring. `--limit N` selects at most N tracks
+per dataset or RWC subset, and `--max-segments N` evaluates an audio prefix for
+short checks. Omit both limits for the full suite. The dataset selection is
+editable in `configs/benchmark/rwc_maps_multtipop.yaml`.
 
-Frame supervision is optional. At `training.frame_loss_weight=0`, no frame head,
-targets, loss, or frame metrics are created. A positive scalar enables them and
-adds `train/frame_loss`. Old metric names are not double-written.
+Training also logs evaluation losses and test note F1 at the configured
+interval. Resume an interrupted run with `run.resume=<checkpoint>`; use
+`run.weights=<checkpoint>` to initialize a new run from model weights. The
+standalone `evaluate.py` uses the same Hydra training configuration for
+validation.
 
-The fixed `mc13_full_plus` task has no `other` decoder channel. Programs outside
-its vocabulary, such as GM FX programs 96–127, remain in the audio/source record
-but are omitted from token supervision with a warning. Adding an `other` channel
-would define a new task and change the model/checkpoint shape.
+## Citation and license
 
-```bash
-# Resume optimizer, scheduler, global step and per-rank RNG states.
-python train.py experiment=0901_offline run.resume=outputs/0901_offline/last.pt
-
-# Start a new optimization run from model weights.
-python train.py experiment=0901_offline run.name=finetune \
-  run.weights=outputs/0901_offline/last.pt
-
-# Evaluate a native checkpoint using the same model config as training.
-python evaluate.py experiment=0901_offline run.name=evaluation \
-  run.weights=outputs/0901_offline/last.pt
-```
-
-Checkpoints are written atomically at `training.save_every` steps and when a
-short run ends. When saving and evaluation fall on the same step, saving comes
-first, so an evaluation failure does not discard that checkpoint. `last.pt`
-points to the latest periodic file. Resume requires
-the same architecture, world size, and learning-rate schedule. It rebuilds the
-cache from the saved cursor of each producer; queued/cache samples are not checkpointed,
-so continuation is not a bitwise replay. This stage does not load Lightning
-checkpoints.
-
-DDP reduces token sums/counts before backward and shards evaluation files without
-padding duplicates. Only rank zero writes logs and checkpoints. Batch size,
-cache capacity, and producer workers are **per rank**.
-
-YourMT3-derived code retains its Apache 2.0 attribution; see `NOTICE` and `LICENSE`.
+If this repository supports your research, please cite the accompanying
+[paper](paper.pdf). YourMT3-derived components retain their Apache 2.0
+attribution in [NOTICE](NOTICE) and [LICENSE](LICENSE). Dataset and renderer
+downloads follow their respective providers' terms.
