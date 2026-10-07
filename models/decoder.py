@@ -28,7 +28,7 @@ class CompactDecoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         dim = config["dim"]
-        self.context_projection = nn.Linear(config["input_dim"], dim)
+        self.context_projection = nn.Linear(config["input_dim"], dim) #* Two-layer MLP might be better: input_dim -> GELU -> dim
         self.blocks = nn.ModuleList(
             [DecoderBlock(dim, config) for _ in range(config["layers"])]
         )
