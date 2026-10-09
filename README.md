@@ -2,9 +2,17 @@
 
 This repository is a research-oriented automatic music transcription (AMT)
 codebase related to [*Randomized Scores and Diverse Timbres: Augmenting
-Automatic Music Transcription with Online-Generated Data*](paper.pdf). It is
+Automatic Music Transcription with Online-Generated Data*](https://arxiv.org/abs/2610.11197). It is
 designed for experiments on how symbolic score variation and timbral coverage
-affect transcription beyond the training datasets.
+affect transcription beyond existing training datasets.
+
+The paper provides these contributions:
+- Moderately randomizing note events preserves and can improve transfer, so realistic score structure is less unnecessary.
+- Broadening timbral coverage under a fixed note-event distribution
+gives monotonic out-of-domain gains. 
+- A simplified multi-channel architecture that splits instrument channels after encoder projection and shares decoder weights without a specialized Perceiver TF encoder.
+- Demonstration that Online-rendered data remain complementary to real and existing synthetic datasets when
+all sources are trained jointly.
 
 The central idea is simple: a **sampler** chooses the notes, and a **renderer**
 turns them into labeled audio during training. Offline recordings can be mixed
@@ -55,9 +63,8 @@ python -m pip install -r requirements.txt
 python -c 'import torch; print(torch.__version__, torch.cuda.is_available())'
 ```
 
-CPU execution is supported for inspection and small checks, but full training
-and benchmark inference are intended for a GPU. Commands below assume the
-environment is activated and the current directory is this repository.
+Full training and benchmark inference are intended for GPUs. Full-sized online data augmentations would require larger CPU compute and memory as well.
+In the paper, the author trained with `batchsize=32` on `2.048s` segments. For `batchsize=32` and the `large` model, it is recommended that the gpu has at least 40GB of memory. Online training requires 32 CPUs and a memory larger than 80GB.
 
 ### Prepare offline data
 
@@ -196,7 +203,15 @@ validation.
 
 ## Citation and license
 
-If this repository supports your research, please cite the accompanying
-[paper](paper.pdf). YourMT3-derived components retain their Apache 2.0
+If this repository supports your research, please cite our paper
+```
+@artical{xia2026randomizedscoresdiversetimbres,
+      title={Randomized Scores and Diverse Timbres: Augmenting Automatic Music Transcription with Online-Generated Data}, 
+      author={Haiwen Xia and Chao Zhang and Qiuqiang Kong},
+      year={2026},
+      url={https://arxiv.org/abs/2610.11197}, 
+}
+```
+YourMT3-derived components retain their Apache 2.0
 attribution in [NOTICE](NOTICE) and [LICENSE](LICENSE). Dataset and renderer
 downloads follow their respective providers' terms.
